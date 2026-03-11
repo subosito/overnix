@@ -1,7 +1,8 @@
-{ pkgs, system }:
+{ pkgs }:
 
 let
   version = "261.13587.0";
+  system = pkgs.stdenv.hostPlatform.system;
 
   sources = {
     "x86_64-linux"   = { url = "https://download-cdn.jetbrains.com/kotlin-lsp/${version}/kotlin-lsp-${version}-linux-x64.zip";      hash = "sha256-EweSqy30NJuxvlJup78O+e+JOkzvUdb6DshqAy1j9jE="; };
@@ -28,6 +29,10 @@ pkgs.stdenv.mkDerivation {
     pkgs.stdenv.cc.cc.lib
     pkgs.zlib
   ];
+
+  # The bundled JRE ships GUI libs (X11, Wayland, etc.) that a headless
+  # LSP server never uses. Ignore all missing deps from autoPatchelf.
+  autoPatchelfIgnoreMissingDeps = true;
 
   installPhase = ''
     runHook preInstall

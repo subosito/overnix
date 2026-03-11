@@ -12,7 +12,7 @@
 
       perSystem = { pkgs, system, ... }:
         let
-          kotlin-lsp = import ./packages/kotlin-lsp { inherit pkgs system; };
+          kotlin-lsp = import ./packages/kotlin-lsp { inherit pkgs; };
         in
         {
           devShells.default = import ./shell.nix { inherit pkgs; };
