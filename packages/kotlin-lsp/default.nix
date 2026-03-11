@@ -34,6 +34,7 @@ pkgs.stdenv.mkDerivation {
 
     mkdir -p $out/bin $out/libexec
     cp -r ./* $out/libexec
+    chmod +x $out/libexec/kotlin-lsp.sh
     makeWrapper $out/libexec/kotlin-lsp.sh $out/bin/kotlin-lsp
 
     runHook postInstall
