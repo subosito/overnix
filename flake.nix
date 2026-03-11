@@ -22,7 +22,7 @@
 
       flake = {
         overlays.default = final: _: {
-          kotlin-lsp = self.packages.${final.system}.kotlin-lsp;
+          kotlin-lsp = self.packages.${final.stdenv.hostPlatform.system}.kotlin-lsp;
         };
       };
     };
