@@ -26,6 +26,8 @@ if [[ "$current_version" == "$latest_version" ]]; then
 fi
 
 CDN="https://download-cdn.jetbrains.com/kotlin-lsp"
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
 
 declare -A PLATFORMS=(
   ["x86_64-linux"]="linux-x64"
@@ -34,37 +36,29 @@ declare -A PLATFORMS=(
   ["aarch64-darwin"]="mac-aarch64"
 )
 
-fetch_sri_hash() {
-  local platform_suffix="$1"
-  local sha256_url="$CDN/$latest_version/kotlin-lsp-$latest_version-$platform_suffix.zip.sha256"
-  local hex_hash
-
-  hex_hash=$(curl -sf "$sha256_url" | awk '{print $1}')
-  if [[ -z "$hex_hash" ]]; then
-    echo "Error: failed to fetch hash for $platform_suffix" >&2
-    exit 1
-  fi
-
-  nix hash convert --hash-algo sha256 --to sri "sha256:$hex_hash"
-}
-
-declare -A HASHES
-
+# Fetch all platform hashes in parallel
 for nix_system in "${!PLATFORMS[@]}"; do
   suffix="${PLATFORMS[$nix_system]}"
-  echo "Fetching hash for $nix_system ($suffix)..."
-  HASHES[$nix_system]=$(fetch_sri_hash "$suffix")
-  echo "  ${HASHES[$nix_system]}"
+  (
+    url="$CDN/$latest_version/kotlin-lsp-$latest_version-$suffix.zip.sha256"
+    hex=$(curl -sf "$url" | awk '{print $1}')
+    if [[ -z "$hex" ]]; then
+      echo "Error: failed to fetch hash for $suffix" >&2
+      exit 1
+    fi
+    nix hash convert --hash-algo sha256 --to sri "sha256:$hex" > "$TMPDIR/$nix_system"
+  ) &
 done
+wait
 
-echo "Updating $PKG_FILE..."
-
-sed -i "s|version = \"$current_version\"|version = \"$latest_version\"|" "$PKG_FILE"
-
+# Build a single sed expression for all replacements
+sed_expr="s|version = \"$current_version\"|version = \"$latest_version\"|"
 for nix_system in "${!PLATFORMS[@]}"; do
-  old_pattern="\"$nix_system\""
-  # Replace the hash on the line matching this system
-  sed -i "/$old_pattern/s|hash = \"sha256-[^\"]*\"|hash = \"${HASHES[$nix_system]}\"|" "$PKG_FILE"
+  hash=$(cat "$TMPDIR/$nix_system")
+  echo "  $nix_system: $hash"
+  sed_expr+="; /\"$nix_system\"/s|hash = \"sha256-[^\"]*\"|hash = \"$hash\"|"
 done
+
+sed -i "$sed_expr" "$PKG_FILE"
 
 echo "Updated kotlin-lsp: $current_version -> $latest_version"
