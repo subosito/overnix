@@ -36,29 +36,38 @@ declare -A PLATFORMS=(
   ["aarch64-darwin"]="mac-aarch64"
 )
 
-# Fetch all platform hashes in parallel
+# Fetch all platform hashes in parallel using unpacked archive hashes that
+# match pkgs.fetchzip expectations. Force the target system so we can resolve
+# all platform outputs, not just the current host system.
 for nix_system in "${!PLATFORMS[@]}"; do
   suffix="${PLATFORMS[$nix_system]}"
   (
-    url="$CDN/$latest_version/kotlin-lsp-$latest_version-$suffix.zip.sha256"
-    hex=$(curl -sf "$url" | awk '{print $1}')
-    if [[ -z "$hex" ]]; then
-      echo "Error: failed to fetch hash for $suffix" >&2
+    url="$CDN/$latest_version/kotlin-lsp-$latest_version-$suffix.zip"
+    hash=$(
+      nix \
+        --system "$nix_system" \
+        store prefetch-file \
+        --json \
+        --unpack \
+        "$url" \
+        | jq -r '.hash'
+    )
+    if [[ -z "$hash" || "$hash" == "null" ]]; then
+      echo "Error: failed to prefetch unpacked hash for $nix_system ($suffix)" >&2
       exit 1
     fi
-    nix hash convert --hash-algo sha256 --to sri "sha256:$hex" > "$TMPDIR/$nix_system"
+    printf '%s\n' "$hash" > "$TMPDIR/$nix_system"
   ) &
 done
 wait
 
-# Build a single sed expression for all replacements
-sed_expr="s|version = \"$current_version\"|version = \"$latest_version\"|"
+# Update version and each platform hash within its own source block.
+sed -i "s|version = \"$current_version\"|version = \"$latest_version\"|" "$PKG_FILE"
+
 for nix_system in "${!PLATFORMS[@]}"; do
   hash=$(cat "$TMPDIR/$nix_system")
   echo "  $nix_system: $hash"
-  sed_expr+="; /\"$nix_system\"/s|hash = \"sha256-[^\"]*\"|hash = \"$hash\"|"
+  sed -i "/\"$nix_system\" = {/,/};/ s|hash = \"sha256-[^\"]*\"|hash = \"$hash\"|" "$PKG_FILE"
 done
-
-sed -i "$sed_expr" "$PKG_FILE"
 
 echo "Updated kotlin-lsp: $current_version -> $latest_version"
